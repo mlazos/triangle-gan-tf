@@ -182,6 +182,7 @@ for i in range(0, 1000):
 
     temp_input = generate_samples(125)
     
+    np.random.shuffle(joint_input)
     np.random.shuffle(temp_input)
     x_input = temp_input[:, 0]
     np.random.shuffle(temp_input)
@@ -190,7 +191,7 @@ for i in range(0, 1000):
 
     for _ in range(0, 9):
         train_step_discriminators.run({x_samples:x_input, joint_samples:joint_input, y_samples:y_input, z_samples: z_input})
-    
+
     train_step_generators.run({x_samples:x_input, joint_samples:joint_input, y_samples:y_input, z_samples: z_input})
 
     if (i % 100 == 0):
