@@ -9,7 +9,7 @@ tf.flags.DEFINE_integer(
 
 tf.flags.DEFINE_integer(
     "num_generator_layers",
-    4,
+    3,
     "The number of layers in the generator networks.")
 
 tf.flags.DEFINE_integer(
@@ -19,12 +19,12 @@ tf.flags.DEFINE_integer(
 
 tf.flags.DEFINE_integer(
     "num_generator_units",
-    64,
+    32,
     "The number of units in each layer of the generators.")
 
 tf.flags.DEFINE_integer(
     "num_discriminator_units",
-    64,
+    32,
     "The number of units in each layer of the discriminators.")
 
 def feedforward(
@@ -64,10 +64,10 @@ def feedforward(
         return tf.layers.dense(prev_output, output_dim, activation=output_activation)
 
 hidden_activation = tf.nn.tanh
-num_layers_disc = 4
-num_units_disc = 32
-num_layers_gen = 3
-num_units_gen = 32
+num_discriminator_layers = tf.flags.FLAGS.num_discriminator_layers
+num_discriminator_units = tf.flags.FLAGS.num_discriminator_units
+num_generator_layers = tf.flags.FLAGS.num_generator_layers
+num_generator_units = tf.flags.FLAGS.num_generator_units
 
 def generator(input):
     """
@@ -79,7 +79,7 @@ def generator(input):
     Returns:
         A sample from the generator distribution.
     """
-    return feedforward(input, 3, num_units_gen, 1, num_layers_gen, hidden_activation)
+    return feedforward(input, 2, num_generator_units, 1, num_generator_layers, hidden_activation)
 
 def discriminator(input):
     """
@@ -91,7 +91,7 @@ def discriminator(input):
     Returns:
         A score of whether the sample is from the desired distribution or not.
     """
-    return feedforward(input, 2, num_units_disc, 1, num_layers_disc, hidden_activation, tf.nn.sigmoid)
+    return feedforward(input, 2, num_discriminator_units, 1, num_discriminator_layers, hidden_activation, tf.nn.sigmoid)
 
 def generate_samples(num_samples_per_component):
     """
@@ -114,7 +114,7 @@ x_samples = tf.placeholder(dtype=tf.float32, shape=[None], name="x_samples")
 x_samples_e = tf.expand_dims(x_samples, 1)
 y_samples = tf.placeholder(dtype=tf.float32, shape=[None], name="y_samples")
 y_samples_e = tf.expand_dims(y_samples, 1)
-z_samples = tf.placeholder(dtype=tf.float32, shape=[None, 2], name="z_samples")
+z_samples = tf.placeholder(dtype=tf.float32, shape=[None, 1], name="z_samples")
 x_z_samples = tf.concat((x_samples_e, z_samples), 1)
 z_y_samples = tf.concat((z_samples, y_samples_e), 1)
 
@@ -132,16 +132,20 @@ with tf.variable_scope("generator_yx") as g_yx_scope:
 fake_x_pairs = tf.concat((x_given_y, y_samples_e), 1)
 fake_y_pairs = tf.concat((x_samples_e, y_given_x), 1)
 
+test_samples = tf.placeholder(dtype=tf.float32, shape=[None, 2], name="test")
+
 with tf.variable_scope("disc_real_or_fake") as d_rf_scope:
     fake_x_scores_drf = discriminator(fake_x_pairs)
     d_rf_scope.reuse_variables()
     real_scores_drf = discriminator(joint_samples)
     fake_y_scores_drf = discriminator(fake_y_pairs)
+    decision_real_or_fake = discriminator(test_samples)
 
 with tf.variable_scope("disc_fake_x_or_fake_y") as d_fxfy_scope:
     fake_x_scores_dfxfy = discriminator(fake_x_pairs)
     d_fxfy_scope.reuse_variables()
     fake_y_scores_dfxfy = discriminator(fake_y_pairs)
+    decision_fake_x_or_fake_y = discriminator(test_samples)
 
 ONES = tf.ones([batch_size, 1])
 ZEROS = tf.zeros([batch_size, 1])
@@ -187,9 +191,9 @@ for i in range(0, 1000):
     x_input = temp_input[:, 0]
     np.random.shuffle(temp_input)
     y_input = temp_input[:, 1]
-    z_input = np.random.multivariate_normal([0,0], [[10.0, 10.0], [10.0, 10.0]], 4 * 125)
+    z_input = np.random.multivariate_normal([0], [[10.0]], 4 * 125)
 
-    for _ in range(0, 9):
+    for _ in range(0, 10):
         train_step_discriminators.run({x_samples:x_input, joint_samples:joint_input, y_samples:y_input, z_samples: z_input})
 
     train_step_generators.run({x_samples:x_input, joint_samples:joint_input, y_samples:y_input, z_samples: z_input})
@@ -203,11 +207,12 @@ final_samples = generate_samples(125)
 
 final_x = final_samples[:, 0]
 final_y = final_samples[:, 1]
-final_z = np.random.multivariate_normal([0, 0], [[10.0, 10.0], [10.0, 10.0]], 500)
+final_z = np.random.multivariate_normal([0], [[10.0]], 500)
 
 final_x_given_y = x_given_y.eval({y_samples: final_y, z_samples: final_z})
 final_y_given_x = y_given_x.eval({x_samples: final_x, z_samples: final_z})
 
+# Print the final distributions
 plt.plot(final_x, final_y_given_x, "o")
 plt.axis('equal')
 plt.show()
@@ -218,4 +223,13 @@ plt.show()
 
 plt.plot(final_x, final_y, "o")
 plt.axis('equal')
+plt.show()
+
+# Print the decision boundary heat maps
+test_samples_v = np.transpose(np.reshape(np.mgrid[-5:5:0.05, -5:5:0.05], [2, -1]))
+real_fake_boundary = np.reshape(decision_real_or_fake.eval({test_samples:test_samples_v}), [200, 200])
+fake_x_fake_y_boundary = np.reshape(decision_fake_x_or_fake_y.eval({test_samples:test_samples_v}), [200, 200])
+plt.imshow(real_fake_boundary, cmap='hot', interpolation='nearest')
+plt.show()
+plt.imshow(fake_x_fake_y_boundary, cmap='hot', interpolation='nearest')
 plt.show()
